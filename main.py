@@ -93,7 +93,6 @@ def get_game(game_id: int) -> GameDetail:
             ),
         ) from error
         
-
     if game is None:
         raise HTTPException(
             status_code=404,

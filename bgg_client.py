@@ -3,6 +3,7 @@ import requests
 from functools import lru_cache
 from dotenv import load_dotenv
 
+
 load_dotenv()
 
 BASE_URL = "https://boardgamegeek.com/xmlapi2"
@@ -19,6 +20,7 @@ def get_headers() -> dict[str, str]:
     return {
         "Authorization": f"Bearer {token}",
     }
+
 
 @lru_cache(maxsize=64)
 def fetch_search_results(query: str) -> str:
@@ -74,6 +76,7 @@ def fetch_game_detail(game_id: int) -> str:
     response.raise_for_status()
 
     return response.text
+
 
 def fetch_game_detail(game_id: int) -> str:
     params = {

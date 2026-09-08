@@ -8,6 +8,7 @@ API_URL = os.getenv(
     "http://127.0.0.1:8000",
 )
 
+
 def get_api_data(
     path: str,
     params: dict[str, str] | None = None,
@@ -62,9 +63,7 @@ st.set_page_config(
     page_icon="🎲",
 )
 
-
 st.title("Vyhledávání deskových her")
-
 
 if "games" not in st.session_state:
     st.session_state.games = []
@@ -72,12 +71,10 @@ if "games" not in st.session_state:
 if "game_detail" not in st.session_state:
     st.session_state.game_detail = None
 
-
 query = st.text_input(
     "Zadejte název hry nebo rozšíření:",
     placeholder="Například Catan",
 )
-
 
 if st.button("Vyhledat"):
     if not query.strip():
@@ -94,9 +91,7 @@ if st.button("Vyhledat"):
             st.session_state.games = search_results
             st.session_state.game_detail = None
 
-
 games = st.session_state.games
-
 
 if games:
     st.success(
@@ -140,11 +135,7 @@ if games:
         if detail is not None:
             st.session_state.game_detail = detail
 
-
-
 game_detail = st.session_state.game_detail
-
-
 
 if game_detail is not None:
     st.subheader(game_detail["name"])

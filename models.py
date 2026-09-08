@@ -7,6 +7,7 @@ class GameSearchResult(BaseModel):
     type: str
     year_published: int | None = None
 
+
 class GameDetail(GameSearchResult):
     image_url: str | None = None
     min_players: int | None = None
