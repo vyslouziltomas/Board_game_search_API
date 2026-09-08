@@ -49,7 +49,7 @@ Streamlit poskytuje uživatelské rozhraní. FastAPI funguje jako backend, komun
 ### 1. Stažení repozitáře
 
 ```bash
-git clone https://github.com/vyslouziltomas/Board_game_search_fastAPI.git
+git clone https://github.com/vyslouziltomas/Board_game_search_API.git
 cd Board_game_search_fastAPI
 ```
 
