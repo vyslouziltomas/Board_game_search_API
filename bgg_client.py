@@ -1,6 +1,8 @@
+
 import os
-import requests
 from functools import lru_cache
+
+import requests
 from dotenv import load_dotenv
 
 
@@ -37,25 +39,6 @@ def fetch_search_results(query: str) -> str:
     )
 
     response.raise_for_status()
-
-    return response.text
-
-
-def fetch_search_results(query: str) -> str:
-    params = {
-        "query": query,
-        "type": "boardgame,boardgameexpansion",
-    }
-
-    response = requests.get(
-        f"{BASE_URL}/search",
-        params=params,
-        headers=get_headers(),
-        timeout=10,
-    )
-
-    response.raise_for_status()
-
     return response.text
 
 
@@ -64,6 +47,7 @@ def fetch_game_detail(game_id: int) -> str:
     params = {
         "id": game_id,
         "stats": 1,
+        "versions": 1,
     }
 
     response = requests.get(
@@ -74,39 +58,4 @@ def fetch_game_detail(game_id: int) -> str:
     )
 
     response.raise_for_status()
-
     return response.text
-
-
-def fetch_game_detail(game_id: int) -> str:
-    params = {
-        "id": game_id,
-        "stats": 1,
-    }
-
-    response = requests.get(
-        f"{BASE_URL}/thing",
-        params=params,
-        headers=get_headers(),
-        timeout=10,
-    )
-
-    response.raise_for_status()
-
-    return response.text
-
-
-if __name__ == "__main__":
-    from xml_parser import parse_search_results
-
-    xml = fetch_search_results("Catan")
-    games = parse_search_results(xml)
-
-    print("Počet nalezených her:", len(games))
-
-    for game in games[:10]:
-        print(game.model_dump())
-
-    print("Velikost odpovědi:", len(xml))
-    print("Začátek odpovědi:")
-    print(xml[:500])

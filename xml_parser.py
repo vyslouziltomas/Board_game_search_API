@@ -1,6 +1,7 @@
+
 import xml.etree.ElementTree as ET
 
-from models import GameSearchResult, GameDetail
+from models import GameSearchResult, GameDetail, GameVersion
 
 
 def get_int_value(
@@ -39,10 +40,10 @@ def get_text_value(
 ) -> str | None:
     element = item.find(path)
 
-    if element is None:
+    if element is None or element.text is None:
         return None
 
-    return element.text
+    return item.findtext(path)
 
 
 def get_link_values(
@@ -68,7 +69,6 @@ def parse_search_results(
     xml_data: str,
 ) -> list[GameSearchResult]:
     games = []
-
     root = ET.fromstring(xml_data)
 
     for item in root.findall("item"):
@@ -82,10 +82,11 @@ def parse_search_results(
         if name_element is None:
             name_element = item.find("name")
 
-        game_name = None
-
-        if name_element is not None:
-            game_name = name_element.get("value")
+        game_name = (
+            name_element.get("value")
+            if name_element is not None
+            else None
+        )
 
         game_year_published = get_int_value(
             item,
@@ -104,11 +105,95 @@ def parse_search_results(
     return games
 
 
+def parse_game_versions(
+    item: ET.Element,
+) -> list[GameVersion]:
+    versions = []
+
+    for version in item.findall(
+        "versions/item"
+    ):
+        version_id = version.get("id")
+
+        if version_id is None:
+            continue
+
+        name_element = version.find(
+            "name[@type='primary']"
+        )
+
+        if name_element is None:
+            name_element = version.find("name")
+
+        version_name = (
+            name_element.get("value")
+            if name_element is not None
+            else None
+        )
+
+        width_in = get_float_value(
+            version,
+            "width",
+        )
+        length_in = get_float_value(
+            version,
+            "length",
+        )
+        depth_in = get_float_value(
+            version,
+            "depth",
+        )
+        weight_lb = get_float_value(
+            version,
+            "weight",
+        )
+
+        versions.append(
+            GameVersion(
+                id=int(version_id),
+                name=version_name,
+                year_published=get_int_value(
+                    version,
+                    "yearpublished",
+                ),
+                publishers=get_link_values(
+                    version,
+                    "boardgamepublisher",
+                ),
+                languages=get_link_values(
+                    version,
+                    "language",
+                ),
+                width_cm=(
+                    round(width_in * 2.54, 2)
+                    if width_in is not None and width_in > 0
+                    else None
+                ),
+                length_cm=(
+                    round(length_in * 2.54, 2)
+                    if length_in is not None and length_in > 0
+                    else None
+                ),
+                depth_cm=(
+                    round(depth_in * 2.54, 2)
+                    if depth_in is not None and depth_in > 0
+                    else None
+                ),
+                weight_g=(
+                    round(weight_lb * 453.59237, 1)
+                    if weight_lb is not None and weight_lb > 0
+                    else None
+                ),
+            )
+        )
+
+    return versions
+
+
 def parse_game_detail(
     xml_data: str,
 ) -> GameDetail | None:
     root = ET.fromstring(xml_data)
-
     item = root.find("item")
 
     if item is None:
@@ -121,10 +206,11 @@ def parse_game_detail(
         "name[@type='primary']"
     )
 
-    game_name = None
-
-    if name_element is not None:
-        game_name = name_element.get("value")
+    game_name = (
+        name_element.get("value")
+        if name_element is not None
+        else None
+    )
 
     return GameDetail(
         id=game_id,
@@ -179,4 +265,5 @@ def parse_game_detail(
             item,
             "statistics/ratings/averageweight",
         ),
+        versions=parse_game_versions(item),
     )

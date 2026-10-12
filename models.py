@@ -1,3 +1,4 @@
+
 from pydantic import BaseModel, Field
 
 
@@ -6,6 +7,18 @@ class GameSearchResult(BaseModel):
     name: str
     type: str
     year_published: int | None = None
+
+
+class GameVersion(BaseModel):
+    id: int
+    name: str | None = None
+    year_published: int | None = None
+    publishers: list[str] = Field(default_factory=list)
+    languages: list[str] = Field(default_factory=list)
+    width_cm: float | None = None
+    length_cm: float | None = None
+    depth_cm: float | None = None
+    weight_g: float | None = None
 
 
 class GameDetail(GameSearchResult):
@@ -23,3 +36,5 @@ class GameDetail(GameSearchResult):
 
     rating: float | None = None
     weight: float | None = None
+
+    versions: list[GameVersion] = Field(default_factory=list)
