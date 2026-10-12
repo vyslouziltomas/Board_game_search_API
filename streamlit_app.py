@@ -1,17 +1,11 @@
 
 import os
 import json
+import xml.etree.ElementTree as ET
 
 import requests
 import streamlit as st
 import streamlit.components.v1 as components
-
-
-API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
-try:
-    COPYWRITER_PASSWORD = st.secrets["COPYWRITER_PASSWORD"]
-except (KeyError, FileNotFoundError):
-    COPYWRITER_PASSWORD = os.getenv("COPYWRITER_PASSWORD", "")
 
 
 st.set_page_config(
@@ -21,39 +15,104 @@ st.set_page_config(
 )
 
 
+# --------------------------------------------------
+# Secrets a připojení k BoardGameGeek
+# --------------------------------------------------
+
+try:
+    BGG_TOKEN = st.secrets["BGG_TOKEN"]
+except (KeyError, FileNotFoundError):
+    BGG_TOKEN = os.getenv("BGG_TOKEN", "")
+
+try:
+    COPYWRITER_PASSWORD = st.secrets["COPYWRITER_PASSWORD"]
+except (KeyError, FileNotFoundError):
+    COPYWRITER_PASSWORD = os.getenv("COPYWRITER_PASSWORD", "")
+
+# bgg_client.py načítá token z proměnné prostředí.
+# Nastavíme ji i tehdy, když token pochází ze Streamlit Secrets.
+if BGG_TOKEN:
+    os.environ["BGG_TOKEN"] = BGG_TOKEN
+
+
+from bgg_client import fetch_search_results, fetch_game_detail
+from xml_parser import parse_search_results, parse_game_detail
+
+
 def get_api_data(endpoint, params=None):
-    """Načte data z backendového API."""
-    url = f"{API_URL.rstrip('/')}/{endpoint.lstrip('/')}"
+    """Načte a zpracuje data přímo z BGG bez FastAPI."""
 
     try:
-        response = requests.get(
-            url,
-            params=params,
-            timeout=90,
-        )
-        response.raise_for_status()
-        return response.json()
+        if not BGG_TOKEN:
+            st.error(
+                "Chybí BGG_TOKEN. Nastavte jej ve Streamlit Secrets."
+            )
+            return None
+
+        if endpoint.rstrip("/") == "/games":
+            query = (params or {}).get("query", "").strip()
+
+            if not query:
+                return []
+
+            xml_data = fetch_search_results(query)
+            games = parse_search_results(xml_data)
+
+            return [game.model_dump() for game in games]
+
+        if endpoint.startswith("/games/"):
+            game_id = int(endpoint.rstrip("/").split("/")[-1])
+
+            xml_data = fetch_game_detail(game_id)
+            game = parse_game_detail(xml_data)
+
+            if game is None:
+                st.warning("Hra nebyla nalezena.")
+                return None
+
+            return game.model_dump()
+
+        st.error(f"Neznámý požadavek: {endpoint}")
+        return None
 
     except requests.exceptions.Timeout:
-        st.error("Požadavek trval příliš dlouho. Zkuste to prosím znovu.")
+        st.error(
+            "Požadavek na BoardGameGeek trval příliš dlouho. "
+            "Zkuste to prosím znovu."
+        )
 
     except requests.exceptions.ConnectionError:
         st.error(
-            "Nepodařilo se připojit k API. "
-            "Zkontrolujte, zda backend běží."
+            "Nepodařilo se připojit k BoardGameGeek. "
+            "Zkontrolujte připojení a zkuste to znovu."
         )
 
     except requests.exceptions.HTTPError as error:
-        st.error(f"API vrátilo HTTP chybu: {error}")
+        status_code = (
+            error.response.status_code
+            if error.response is not None
+            else "neznámý"
+        )
+        st.error(f"BoardGameGeek vrátil HTTP chybu: {status_code}.")
 
     except requests.exceptions.RequestException as error:
-        st.error(f"Chyba při komunikaci s API: {error}")
+        st.error(f"Chyba při komunikaci s BoardGameGeek: {error}")
 
-    except ValueError:
-        st.error("API nevrátilo platná JSON data.")
+    except ET.ParseError:
+        st.error("BoardGameGeek vrátil neplatná XML data.")
+
+    except (ValueError, TypeError) as error:
+        st.error(f"Nepodařilo se zpracovat data hry: {error}")
+
+    except RuntimeError as error:
+        st.error(str(error))
 
     return None
 
+
+# --------------------------------------------------
+# Pomocné funkce
+# --------------------------------------------------
 
 def format_value(value, fallback="x"):
     """Převede hodnotu na text nebo vrátí náhradní hodnotu."""
@@ -86,10 +145,10 @@ def format_players(game):
 
 
 def format_dimensions(version):
-    """Vrátí rozměry bez jednotek."""
-    width = version.get("width")
-    length = version.get("length")
-    depth = version.get("depth")
+    """Vrátí rozměry edice bez jednotek."""
+    width = version.get("width_cm")
+    length = version.get("length_cm")
+    depth = version.get("depth_cm")
 
     if width is None or length is None or depth is None:
         return "x"
@@ -109,7 +168,7 @@ def format_list(values):
 
 
 def get_game_list(data):
-    """Podporuje seznam her i seznam zabalený v objektu JSON."""
+    """Vrátí seznam her."""
     if isinstance(data, list):
         return data
 
@@ -137,13 +196,13 @@ def get_version_name(version):
 
 
 def get_version_language(version):
-    """Vrátí jazyk edice, pokud je dostupný."""
-    language = version.get("language")
+    """Vrátí jazyky konkrétní edice."""
+    languages = version.get("languages") or version.get("language") or []
 
-    if isinstance(language, list):
-        return ", ".join(str(item) for item in language)
+    if isinstance(languages, list):
+        return ", ".join(str(item) for item in languages)
 
-    return language or ""
+    return str(languages)
 
 
 def get_default_language(version):
@@ -170,12 +229,8 @@ def get_version_weight(version):
 
 
 def get_version_id(version):
-    """Vrátí ID edice pro identifikaci formuláře."""
-    return (
-        version.get("id")
-        or version.get("version_id")
-        or get_version_name(version)
-    )
+    """Vrátí ID edice."""
+    return version.get("id") or version.get("version_id") or get_version_name(version)
 
 
 def render_copy_button(value, index):
@@ -321,7 +376,7 @@ if mode == "PRO COPYWRITERY":
     if not COPYWRITER_PASSWORD:
         st.error(
             "Heslo není nastavené. "
-            "Nastavte proměnnou prostředí COPYWRITER_PASSWORD."
+            "Nastavte COPYWRITER_PASSWORD ve Streamlit Secrets."
         )
         st.stop()
 
@@ -337,15 +392,11 @@ if mode == "PRO COPYWRITERY":
         st.stop()
 
 else:
-    # Po návratu do režimu pro hráče bude při dalším výběru
-    # režimu pro copywritery nutné heslo zadat znovu.
     st.session_state["copywriter_authenticated"] = False
 
 
 # --------------------------------------------------
 # Vyhledávání her
-# Tato část se vykreslí až po ověření hesla,
-# pokud je zvolen režim PRO COPYWRITERY.
 # --------------------------------------------------
 
 st.divider()
@@ -359,6 +410,8 @@ if st.button("Vyhledat", type="primary"):
     if query.strip():
         st.session_state["search_results"] = None
         st.session_state["selected_game_id"] = None
+        st.session_state.pop("game_detail", None)
+        st.session_state.pop("loaded_game_id", None)
 
         search_data = get_api_data(
             "/games",
@@ -386,7 +439,7 @@ if search_results is not None:
                 {
                     "ID": game.get("id"),
                     "Název": get_game_name(game),
-                    "Rok vydání": game.get("year", "x"),
+                    "Rok vydání": game.get("year_published", "x"),
                 }
             )
 
@@ -398,8 +451,11 @@ if search_results is not None:
         )
 
         game_options = {
-            f"{get_game_name(game)} ({game.get('year', 'x')}) — ID {game.get('id')}":
-                game.get("id")
+            (
+                f"{get_game_name(game)} "
+                f"({game.get('year_published') or 'x'}) "
+                f"— ID {game.get('id')}"
+            ): game.get("id")
             for game in search_results
             if game.get("id") is not None
         }
@@ -415,6 +471,7 @@ if search_results is not None:
                     selected_label
                 ]
                 st.session_state.pop("game_detail", None)
+                st.session_state.pop("loaded_game_id", None)
 
 
 # --------------------------------------------------
@@ -446,8 +503,8 @@ if selected_game_id is not None:
 
         if mode == "PRO HRÁČE":
             image_url = (
-                game_detail.get("image")
-                or game_detail.get("image_url")
+                game_detail.get("image_url")
+                or game_detail.get("image")
                 or game_detail.get("thumbnail")
             )
 
@@ -459,7 +516,7 @@ if selected_game_id is not None:
             with col1:
                 st.write(
                     "**Rok vydání:**",
-                    format_value(game_detail.get("year")),
+                    format_value(game_detail.get("year_published")),
                 )
                 st.write(
                     "**Počet hráčů:**",
@@ -632,14 +689,46 @@ if selected_game_id is not None:
                     ("Jazyk", get_default_language(selected_version), False),
                     ("Váha v gramech", get_version_weight(selected_version), False),
                     ("Rozměr", format_dimensions(selected_version), False),
-                    ("BG: BGG hodnocení", format_decimal(game_detail.get("rating")), False),
-                    ("BG: Herní principy", format_list(game_detail.get("mechanics")), False),
-                    ("BG: Délka hry (min)", format_value(game_detail.get("playing_time")), False),
-                    ("BG: Herní rodina", get_game_name(game_detail), False),
-                    ("BG: Minimální věk hráčů", format_value(game_detail.get("min_age")), False),
-                    ("BG: Obtížnost", format_decimal(game_detail.get("weight")), False),
-                    ("BG: Podkategorie", format_list(game_detail.get("categories")), False),
-                    ("BG: Počet hráčů", format_players(game_detail), False),
+                    (
+                        "BG: BGG hodnocení",
+                        format_decimal(game_detail.get("rating")),
+                        False,
+                    ),
+                    (
+                        "BG: Herní principy",
+                        format_list(game_detail.get("mechanics")),
+                        False,
+                    ),
+                    (
+                        "BG: Délka hry (min)",
+                        format_value(game_detail.get("playing_time")),
+                        False,
+                    ),
+                    (
+                        "BG: Herní rodina",
+                        get_game_name(game_detail),
+                        False,
+                    ),
+                    (
+                        "BG: Minimální věk hráčů",
+                        format_value(game_detail.get("min_age")),
+                        False,
+                    ),
+                    (
+                        "BG: Obtížnost",
+                        format_decimal(game_detail.get("weight")),
+                        False,
+                    ),
+                    (
+                        "BG: Podkategorie",
+                        format_list(game_detail.get("categories")),
+                        False,
+                    ),
+                    (
+                        "BG: Počet hráčů",
+                        format_players(game_detail),
+                        False,
+                    ),
                 ]
 
                 for index, (label, default_value, multiline) in enumerate(fields):
